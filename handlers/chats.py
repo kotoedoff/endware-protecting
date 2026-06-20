@@ -240,6 +240,27 @@ async def handle_user_violation(
             )
             await add_active_mute(db_session, chat_id, user.id, until_date)
             
+            group_msg = (
+                f"🚨 **Нарушение правил!**\n"
+                f"• **Пользователь:** {user.mention_html()}\n"
+                f"• **Нарушение:** {reason}\n"
+                f"• **Наказание:** Удаление сообщения + мут на {settings.mute_duration_minutes} мин\n"
+                f"• **Детали:** {explanation}"
+            )
+        else:
+            group_msg = (
+                f"⚠️ **Обнаружено нарушение!**\n"
+                f"• **Пользователь:** {user.mention_html()} (Администратор)\n"
+                f"• **Нарушение:** {reason}\n"
+                f"• **Наказание:** Сообщение удалено. Ограничения не применены (администратор)\n"
+                f"• **Детали:** {explanation}"
+            )
+            
+        try:
+            await bot.send_message(chat_id, group_msg, parse_mode="HTML")
+        except Exception as ge:
+            logger.error(f"Failed to send group alert in chat {chat_id}: {ge}")
+
         alert_msg = (
             f"🚨 **Нарушение правил в группе!**\n"
             f"• **Чат:** {message.chat.title}\n"
@@ -256,6 +277,7 @@ async def handle_user_violation(
 _message_tracker: Dict[tuple, list] = {}
 _media_tracker: Dict[tuple, list] = {}
 _seen_media_groups: Dict[tuple, list] = {}
+_repeat_tracker: Dict[tuple, list] = {}
 
 def check_message_flood(chat_id: int, user_id: int, message: types.Message) -> str:
     """
@@ -264,6 +286,24 @@ def check_message_flood(chat_id: int, user_id: int, message: types.Message) -> s
     """
     now = time.time()
     key = (chat_id, user_id)
+
+    # Media group duplicate check to treat albums as a single message event
+    is_duplicate_media = False
+    if message.media_group_id:
+        group_key = (chat_id, user_id)
+        if group_key not in _seen_media_groups:
+            _seen_media_groups[group_key] = []
+        _seen_media_groups[group_key] = [
+            (mg_id, t) for mg_id, t in _seen_media_groups[group_key] if now - t < 10
+        ]
+        seen_ids = [mg_id for mg_id, t in _seen_media_groups[group_key]]
+        if message.media_group_id in seen_ids:
+            is_duplicate_media = True
+        else:
+            _seen_media_groups[group_key].append((message.media_group_id, now))
+
+    if is_duplicate_media:
+        return ""
     
     # 1. Mass tags check
     mentions_count = 0
@@ -279,41 +319,41 @@ def check_message_flood(chat_id: int, user_id: int, message: types.Message) -> s
     if mentions_count > 5:
         return "Массовые упоминания (более 5 тегов)"
         
-    # 2. Classic message flood (more than 5 messages in 5 seconds)
+    # 2. Repeat/Duplicate message text spam check
+    content = (message.text or message.caption or "").strip()
+    if content and len(content) >= 5:
+        if key not in _repeat_tracker:
+            _repeat_tracker[key] = []
+        _repeat_tracker[key] = [(txt, t) for txt, t in _repeat_tracker[key] if now - t < 15]
+        _repeat_tracker[key].append((content, now))
+        
+        same_count = sum(1 for txt, t in _repeat_tracker[key] if txt == content)
+        if same_count >= 3:
+            return "Повторение одного сообщения (спам)"
+
+    # 3. Classic message flood (more than 4 messages in 5 seconds)
     if key not in _message_tracker:
         _message_tracker[key] = []
     _message_tracker[key] = [t for t in _message_tracker[key] if now - t < 5]
     _message_tracker[key].append(now)
-    if len(_message_tracker[key]) > 5:
-        return "Классический флуд (более 5 сообщений за 5 сек)"
+    
+    logger.info(f"Flood tracker user={user_id} chat={chat_id}: msgs={len(_message_tracker[key])}")
+    
+    if len(_message_tracker[key]) > 4:
+        return "Классический флуд (более 4 сообщений за 5 сек)"
         
-    # 3. Media flood (more than 3 media files in 5 seconds, ignoring media groups/albums)
+    # 4. Media flood (more than 3 media files in 5 seconds, ignoring media groups/albums)
     is_media = any([
         message.photo, message.video, message.document, message.audio, 
         message.voice, message.sticker, message.animation, message.video_note
     ])
     if is_media:
-        is_new_media = True
-        if message.media_group_id:
-            group_key = (chat_id, user_id)
-            if group_key not in _seen_media_groups:
-                _seen_media_groups[group_key] = []
-            _seen_media_groups[group_key] = [
-                (mg_id, t) for mg_id, t in _seen_media_groups[group_key] if now - t < 10
-            ]
-            seen_ids = [mg_id for mg_id, t in _seen_media_groups[group_key]]
-            if message.media_group_id in seen_ids:
-                is_new_media = False
-            else:
-                _seen_media_groups[group_key].append((message.media_group_id, now))
-                
-        if is_new_media:
-            if key not in _media_tracker:
-                _media_tracker[key] = []
-            _media_tracker[key] = [t for t in _media_tracker[key] if now - t < 5]
-            _media_tracker[key].append(now)
-            if len(_media_tracker[key]) > 3:
-                return "Медиа-флуд (более 3 медиа-отправок за 5 сек)"
+        if key not in _media_tracker:
+            _media_tracker[key] = []
+        _media_tracker[key] = [t for t in _media_tracker[key] if now - t < 5]
+        _media_tracker[key].append(now)
+        if len(_media_tracker[key]) > 3:
+            return "Медиа-флуд (более 3 медиа-отправок за 5 сек)"
             
     return ""
 
