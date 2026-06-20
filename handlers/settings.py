@@ -22,18 +22,31 @@ class SettingsStates(StatesGroup):
     waiting_for_blacklist_word = State()
 
 async def get_user_managed_chats(session: AsyncSession, bot: Bot, user_id: int):
-    """Retrieve all chats from DB where user is Creator/Global Owner and bot is present."""
+    """Retrieve all chats from DB where user is Creator/Global Owner and bot is present. Auto-cleans deleted/kicked chats."""
     result = await session.execute(select(ChatSettings))
     all_chat_settings = result.scalars().all()
     
     managed = []
+    chats_to_delete = []
+    
     for setting in all_chat_settings:
+        # Check if bot can still access this chat. If not, schedule it for cleanup.
+        try:
+            bot_member = await bot.get_chat_member(setting.chat_id, bot.id)
+            if bot_member.status in [ChatMemberStatus.LEFT, ChatMemberStatus.KICKED]:
+                chats_to_delete.append(setting.chat_id)
+                continue
+        except Exception:
+            chats_to_delete.append(setting.chat_id)
+            continue
+            
+        # Check authorization
         if user_id == config.OWNER_ID:
             try:
                 chat = await bot.get_chat(setting.chat_id)
                 managed.append(chat)
             except Exception:
-                pass
+                chats_to_delete.append(setting.chat_id)
             continue
             
         try:
@@ -42,8 +55,14 @@ async def get_user_managed_chats(session: AsyncSession, bot: Bot, user_id: int):
                 chat = await bot.get_chat(setting.chat_id)
                 managed.append(chat)
         except Exception:
-            # Bot might have been kicked or user is not in the chat
             pass
+            
+    # Clean up deleted/invalid chats from database
+    if chats_to_delete:
+        from sqlalchemy import delete
+        await session.execute(delete(ChatSettings).where(ChatSettings.chat_id.in_(chats_to_delete)))
+        await session.commit()
+        
     return managed
 
 def make_main_keyboard(chats, bot_username: str) -> InlineKeyboardMarkup:
@@ -173,9 +192,17 @@ async def callback_show_list(callback: CallbackQuery, db_session: AsyncSession, 
 @router.callback_query(F.data.startswith("set:chat:"))
 async def callback_chat_details(callback: CallbackQuery, db_session: AsyncSession, bot: Bot):
     chat_id = int(callback.data.split(":")[2])
-    chat = await bot.get_chat(chat_id)
+    try:
+        chat = await bot.get_chat(chat_id)
+    except Exception as e:
+        logger.warning(f"Failed to get chat {chat_id} details: {e}")
+        from sqlalchemy import delete
+        await db_session.execute(delete(ChatSettings).where(ChatSettings.chat_id == chat_id))
+        await db_session.commit()
+        await callback.answer("Этот чат больше недоступен или был удален.", show_alert=True)
+        return await callback_show_list(callback, db_session, bot)
+        
     title = chat.title or f"Chat {chat_id}"
-    
     settings = await get_chat_settings(db_session, chat_id)
     is_channel = chat.type == ChatType.CHANNEL
     
@@ -217,13 +244,22 @@ async def callback_toggle_setting(callback: CallbackQuery, db_session: AsyncSess
     _, _, chat_id_str, field = callback.data.split(":")
     chat_id = int(chat_id_str)
     
+    try:
+        chat = await bot.get_chat(chat_id)
+    except Exception as e:
+        logger.warning(f"Failed to get chat {chat_id} during toggle: {e}")
+        from sqlalchemy import delete
+        await db_session.execute(delete(ChatSettings).where(ChatSettings.chat_id == chat_id))
+        await db_session.commit()
+        await callback.answer("Этот чат больше недоступен или был удален.", show_alert=True)
+        return await callback_show_list(callback, db_session, bot)
+        
     settings = await get_chat_settings(db_session, chat_id)
     current_val = getattr(settings, field)
     # Update field toggle
     kwargs = {field: not current_val}
     await update_chat_settings(db_session, chat_id, **kwargs)
     
-    chat = await bot.get_chat(chat_id)
     is_channel = chat.type == ChatType.CHANNEL
     keyboard = await make_channel_settings_keyboard(db_session, chat_id) if is_channel else await make_group_settings_keyboard(db_session, chat_id)
     
