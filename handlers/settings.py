@@ -61,8 +61,8 @@ def make_main_keyboard(chats, bot_username: str) -> InlineKeyboardMarkup:
     keyboard.append([InlineKeyboardButton(text="🔄 Обновить список", callback_data="set:list")])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
-async def make_chat_settings_keyboard(session: AsyncSession, chat_id: int) -> InlineKeyboardMarkup:
-    """Generate configuration options for a specific chat/channel."""
+async def make_group_settings_keyboard(session: AsyncSession, chat_id: int) -> InlineKeyboardMarkup:
+    """Generate configuration options for a specific group chat."""
     settings = await get_chat_settings(session, chat_id)
     
     t_anti_bot = "✅ Анти-накрутка" if settings.anti_bot_flood else "❌ Анти-накрутка"
@@ -94,6 +94,25 @@ async def make_chat_settings_keyboard(session: AsyncSession, chat_id: int) -> In
     ]
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
+async def make_channel_settings_keyboard(session: AsyncSession, chat_id: int) -> InlineKeyboardMarkup:
+    """Generate configuration options for a channel."""
+    settings = await get_chat_settings(session, chat_id)
+    
+    t_anti_bot = "✅ Анти-накрутка" if settings.anti_bot_flood else "❌ Анти-накрутка"
+    t_anti_admin = "✅ Rogue Admin" if settings.anti_admin_spam else "❌ Rogue Admin"
+    
+    keyboard = [
+        [InlineKeyboardButton(text=t_anti_bot, callback_data=f"set:toggle:{chat_id}:anti_bot_flood")],
+        [InlineKeyboardButton(text=t_anti_admin, callback_data=f"set:toggle:{chat_id}:anti_admin_spam")],
+        [
+            InlineKeyboardButton(text="🔑 Текстовый Ключ", callback_data=f"set:key_text:{chat_id}"),
+            InlineKeyboardButton(text="📷 Визуальный Ключ", callback_data=f"set:key_vis:{chat_id}")
+        ],
+        [InlineKeyboardButton(text="📢 Канал Логов", callback_data=f"set:log:{chat_id}")],
+        [InlineKeyboardButton(text="⬅️ Назад к списку", callback_data="set:list")]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
 @router.message(Command("settings"), F.chat.type == ChatType.PRIVATE)
 async def cmd_settings(message: types.Message, db_session: AsyncSession, bot: Bot):
     """Entrypoint command for interactive settings panel (DM only)."""
@@ -109,7 +128,10 @@ async def cmd_settings(message: types.Message, db_session: AsyncSession, bot: Bo
             "3. Вернитесь сюда и нажмите кнопку **Обновить список**."
         )
     else:
-        text = "🛠 **Панель настройки Endware Security**\n\nВыберите чат или канал для управления:"
+        text = (
+            "🛠 **Панель настройки Endware Security**\n\n"
+            "Выберите чат или канал из списка ниже для детальной конфигурации:"
+        )
         
     await message.answer(
         text,
@@ -131,7 +153,10 @@ async def callback_show_list(callback: CallbackQuery, db_session: AsyncSession, 
             "3. Нажмите кнопку **Обновить список**."
         )
     else:
-        text = "🛠 **Панель настройки Endware Security**\n\nВыберите чат или канал для управления:"
+        text = (
+            "🛠 **Панель настройки Endware Security**\n\n"
+            "Выберите чат или канал из списка ниже для детальной конфигурации:"
+        )
         
     try:
         await callback.message.edit_text(
@@ -152,17 +177,38 @@ async def callback_chat_details(callback: CallbackQuery, db_session: AsyncSessio
     title = chat.title or f"Chat {chat_id}"
     
     settings = await get_chat_settings(db_session, chat_id)
-    status_text = (
-        f"⚙️ **Управление чатом/каналом:** {title}\n"
-        f"• **ID:** `{chat_id}`\n\n"
-        f"• **Текстовый ключ Groq:** {'Установлен (персональный)' if settings.custom_groq_key_text else 'Глобальный (дефолт)'}\n"
-        f"• **Визуальный ключ Groq:** {'Установлен (персональный)' if settings.custom_groq_key_vision else 'Глобальный (дефолт)'}\n"
-        f"• **Канал логов:** {settings.alert_channel_id if settings.alert_channel_id else 'не настроен'}"
-    )
+    is_channel = chat.type == ChatType.CHANNEL
     
+    if is_channel:
+        status_text = (
+            f"⚙️ **Настройки канала:** {title}\n"
+            f"• **ID:** `{chat_id}`\n\n"
+            f"🛡 **Функции модерации канала:**\n"
+            f"• **Анти-накрутка:** Отклонение заявок (Join Requests) от подозрительных ботов.\n"
+            f"• **Rogue Admin:** Быстрое удаление вредоносных постов, рекламы и NSFW от взломанных админов.\n"
+            f"• **Канал логов:** Отправка логов удаленных постов/ботов (сейчас: {settings.alert_channel_id if settings.alert_channel_id else 'не настроен'}).\n"
+            f"• **Кастомный ИИ:** Личные ключи Groq для канала (Text: {'✅' if settings.custom_groq_key_text else '❌'}, Vision: {'✅' if settings.custom_groq_key_vision else '❌'}).\n"
+        )
+        keyboard = await make_channel_settings_keyboard(db_session, chat_id)
+    else:
+        status_text = (
+            f"⚙️ **Настройки группы:** {title}\n"
+            f"• **ID:** `{chat_id}`\n\n"
+            f"🛡 **Функции защиты чата:**\n"
+            f"• **Анти-накрутка:** Фильтрация бот-набегов на чат.\n"
+            f"• **Rogue Admin:** Понижение админов-нарушителей при спаме.\n"
+            f"• **Скрытая реклама:** Фильтр рекламы в никах, био и сообщениях.\n"
+            f"• **Капча при входе:** Проверка смайликом при вступлении.\n"
+            f"• **Безопасные ссылки:** Фильтр фишинга и IP-логгеров (Grabify).\n"
+            f"• **Стоп-слова:** Персональный черный список слов.\n"
+            f"• **Канал логов:** Ссылка на лог-канал (сейчас: {settings.alert_channel_id if settings.alert_channel_id else 'не настроен'}).\n"
+            f"• **Кастомный ИИ:** Ваши ключи Groq (Text: {'✅' if settings.custom_groq_key_text else '❌'}, Vision: {'✅' if settings.custom_groq_key_vision else '❌'}).\n"
+        )
+        keyboard = await make_group_settings_keyboard(db_session, chat_id)
+        
     await callback.message.edit_text(
         status_text,
-        reply_markup=await make_chat_settings_keyboard(db_session, chat_id),
+        reply_markup=keyboard,
         parse_mode="Markdown"
     )
 
@@ -177,10 +223,12 @@ async def callback_toggle_setting(callback: CallbackQuery, db_session: AsyncSess
     kwargs = {field: not current_val}
     await update_chat_settings(db_session, chat_id, **kwargs)
     
+    chat = await bot.get_chat(chat_id)
+    is_channel = chat.type == ChatType.CHANNEL
+    keyboard = await make_channel_settings_keyboard(db_session, chat_id) if is_channel else await make_group_settings_keyboard(db_session, chat_id)
+    
     # Refresh keyboard
-    await callback.message.edit_reply_markup(
-        reply_markup=await make_chat_settings_keyboard(db_session, chat_id)
-    )
+    await callback.message.edit_reply_markup(reply_markup=keyboard)
     await callback.answer("Настройка изменена!")
 
 @router.callback_query(F.data.startswith("set:mute:"))
@@ -197,12 +245,12 @@ async def callback_mute_duration(callback: CallbackQuery, db_session: AsyncSessi
         new_mute = max(10, current_mute - 10)
         
     await update_chat_settings(db_session, chat_id, mute_duration_minutes=new_mute)
+    keyboard = await make_group_settings_keyboard(db_session, chat_id)
     
     # Refresh keyboard
-    await callback.message.edit_reply_markup(
-        reply_markup=await make_chat_settings_keyboard(db_session, chat_id)
-    )
+    await callback.message.edit_reply_markup(reply_markup=keyboard)
     await callback.answer(f"Длительность мута: {new_mute} мин")
+
 
 # --- Interactive Text Input States (FSM) ---
 
