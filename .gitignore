@@ -132,3 +132,6 @@ Thumbs.db
 *.db-journal
 *.sqlite3-journal
 *.log
+
+# Project planning / local documentation
+project_plan.md
