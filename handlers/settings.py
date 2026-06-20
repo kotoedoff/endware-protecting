@@ -329,9 +329,11 @@ async def cmd_cancel_fsm(message: types.Message, state: FSMContext, db_session: 
     if chat_id:
         chat = await bot.get_chat(chat_id)
         title = chat.title or f"Chat {chat_id}"
+        is_channel = chat.type == ChatType.CHANNEL
+        keyboard = await make_channel_settings_keyboard(db_session, chat_id) if is_channel else await make_group_settings_keyboard(db_session, chat_id)
         await message.answer(
             f"❌ Ввод отменен.\n⚙️ **Управление чатом/каналом:** {title}",
-            reply_markup=await make_chat_settings_keyboard(db_session, chat_id),
+            reply_markup=keyboard,
             parse_mode="Markdown"
         )
     else:
@@ -354,9 +356,11 @@ async def process_text_key(message: types.Message, state: FSMContext, db_session
         
     await state.clear()
     chat = await bot.get_chat(chat_id)
+    is_channel = chat.type == ChatType.CHANNEL
+    keyboard = await make_channel_settings_keyboard(db_session, chat_id) if is_channel else await make_group_settings_keyboard(db_session, chat_id)
     await message.answer(
         f"⚙️ **Управление чатом:** {chat.title}",
-        reply_markup=await make_chat_settings_keyboard(db_session, chat_id),
+        reply_markup=keyboard,
         parse_mode="Markdown"
     )
 
@@ -375,9 +379,11 @@ async def process_vision_key(message: types.Message, state: FSMContext, db_sessi
         
     await state.clear()
     chat = await bot.get_chat(chat_id)
+    is_channel = chat.type == ChatType.CHANNEL
+    keyboard = await make_channel_settings_keyboard(db_session, chat_id) if is_channel else await make_group_settings_keyboard(db_session, chat_id)
     await message.answer(
         f"⚙️ **Управление чатом:** {chat.title}",
-        reply_markup=await make_chat_settings_keyboard(db_session, chat_id),
+        reply_markup=keyboard,
         parse_mode="Markdown"
     )
 
@@ -398,9 +404,11 @@ async def process_log_channel(message: types.Message, state: FSMContext, db_sess
         
     await state.clear()
     chat = await bot.get_chat(chat_id)
+    is_channel = chat.type == ChatType.CHANNEL
+    keyboard = await make_channel_settings_keyboard(db_session, chat_id) if is_channel else await make_group_settings_keyboard(db_session, chat_id)
     await message.answer(
         f"⚙️ **Управление чатом:** {chat.title}",
-        reply_markup=await make_chat_settings_keyboard(db_session, chat_id),
+        reply_markup=keyboard,
         parse_mode="Markdown"
     )
 
