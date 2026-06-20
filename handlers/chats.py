@@ -9,7 +9,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ChatPermis
 from aiogram.filters import ChatMemberUpdatedFilter, IS_MEMBER, IS_NOT_MEMBER
 from aiogram.types import ChatMemberUpdated
 from aiogram.enums import ChatMemberStatus, ChatType
-from database.crud import get_chat_settings, get_blacklisted_words, add_active_mute, add_warn, reset_warns
+from database.crud import get_chat_settings, initialize_chat_settings, get_blacklisted_words, add_active_mute, add_warn, reset_warns
 from sqlalchemy.ext.asyncio import AsyncSession
 from services.heuristics import contains_stealth_ad_keywords, is_malicious_link, extract_urls
 from services.groq import analyze_text, analyze_image
@@ -85,7 +85,7 @@ async def on_user_join(event: ChatMemberUpdated, db_session: AsyncSession, bot: 
     if user.is_bot:
         return
         
-    settings = await get_chat_settings(db_session, chat_id)
+    settings = await initialize_chat_settings(db_session, bot, chat_id, event.chat.title)
     if not settings.captcha_gate:
         return
 
@@ -264,7 +264,7 @@ async def monitor_chat_message(message: types.Message, db_session: AsyncSession,
     if user.is_bot:
         return
 
-    settings = await get_chat_settings(db_session, chat_id)
+    settings = await initialize_chat_settings(db_session, bot, chat_id, message.chat.title)
     
     content = message.text or message.caption or ""
     

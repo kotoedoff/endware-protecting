@@ -2,7 +2,7 @@ import logging
 from aiogram import Router, types, Bot
 from aiogram.filters import ChatMemberUpdatedFilter
 from aiogram.types import ChatJoinRequest
-from database.crud import get_chat_settings, get_blacklisted_words
+from database.crud import get_chat_settings, initialize_chat_settings, get_blacklisted_words
 from sqlalchemy.ext.asyncio import AsyncSession
 from services.heuristics import check_join_rate, is_suspicious_profile, extract_urls, is_malicious_link
 from services.groq import analyze_text, analyze_image
@@ -33,7 +33,7 @@ async def handle_join_request(event: ChatJoinRequest, db_session: AsyncSession, 
     """
     chat_id = event.chat.id
     user = event.from_user
-    settings = await get_chat_settings(db_session, chat_id)
+    settings = await initialize_chat_settings(db_session, bot, chat_id, event.chat.title)
 
     if not settings.anti_bot_flood:
         # Default behavior: approve if protection is off
@@ -85,7 +85,7 @@ async def handle_join_request(event: ChatJoinRequest, db_session: AsyncSession, 
 async def inspect_channel_post(message: types.Message, db_session: AsyncSession, bot: Bot):
     """Inspect channel posts for malicious links, keywords, or NSFW content."""
     chat_id = message.chat.id
-    settings = await get_chat_settings(db_session, chat_id)
+    settings = await initialize_chat_settings(db_session, bot, chat_id, message.chat.title)
 
     if not settings.anti_admin_spam:
         return

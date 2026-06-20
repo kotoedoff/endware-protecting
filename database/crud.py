@@ -19,6 +19,49 @@ async def get_chat_settings(session: AsyncSession, chat_id: int) -> ChatSettings
         await session.refresh(settings)
     return settings
 
+async def initialize_chat_settings(session: AsyncSession, bot, chat_id: int, chat_title: str = None) -> ChatSettings:
+    """Retrieve or create chat settings, dynamically resolving creator_id, chat_title, and chat_type if missing."""
+    result = await session.execute(
+        select(ChatSettings).where(ChatSettings.chat_id == chat_id)
+    )
+    settings = result.scalar_one_or_none()
+    
+    needs_commit = False
+    if not settings:
+        settings = ChatSettings(chat_id=chat_id)
+        session.add(settings)
+        needs_commit = True
+        
+    # Resolve missing attributes
+    if needs_commit or not settings.chat_title or not settings.chat_type or not settings.creator_id:
+        try:
+            chat = await bot.get_chat(chat_id)
+            settings.chat_title = chat.title or chat.username or f"Chat {chat_id}"
+            settings.chat_type = chat.type
+        except Exception:
+            if not settings.chat_title:
+                settings.chat_title = chat_title or f"Chat {chat_id}"
+                
+        try:
+            admins = await bot.get_chat_administrators(chat_id)
+            for admin in admins:
+                if admin.status == "creator":
+                    settings.creator_id = admin.user.id
+                    break
+        except Exception:
+            pass
+            
+        needs_commit = True
+        
+    if needs_commit:
+        await session.commit()
+        try:
+            await session.refresh(settings)
+        except Exception:
+            pass
+            
+    return settings
+
 async def update_chat_settings(session: AsyncSession, chat_id: int, **kwargs) -> ChatSettings:
     """Update settings fields dynamically."""
     settings = await get_chat_settings(session, chat_id)

@@ -7,6 +7,9 @@ class ChatSettings(Base):
     __tablename__ = "chat_settings"
 
     chat_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    chat_title: Mapped[str] = mapped_column(String, nullable=True)
+    chat_type: Mapped[str] = mapped_column(String, nullable=True)
+    creator_id: Mapped[int] = mapped_column(BigInteger, nullable=True)
     anti_bot_flood: Mapped[bool] = mapped_column(Boolean, default=False)
     anti_admin_spam: Mapped[bool] = mapped_column(Boolean, default=False)
     anti_stealth_ad: Mapped[bool] = mapped_column(Boolean, default=False)

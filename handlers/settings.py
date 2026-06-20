@@ -22,46 +22,24 @@ class SettingsStates(StatesGroup):
     waiting_for_blacklist_word = State()
 
 async def get_user_managed_chats(session: AsyncSession, bot: Bot, user_id: int):
-    """Retrieve all chats from DB where user is Creator/Global Owner and bot is present. Auto-cleans deleted/kicked chats."""
-    result = await session.execute(select(ChatSettings))
+    """Retrieve all chats from DB where user is Creator/Global Owner."""
+    if user_id == config.OWNER_ID:
+        result = await session.execute(select(ChatSettings))
+    else:
+        result = await session.execute(
+            select(ChatSettings).where(ChatSettings.creator_id == user_id)
+        )
     all_chat_settings = result.scalars().all()
     
     managed = []
-    chats_to_delete = []
-    
+    class SimpleChat:
+        def __init__(self, chat_id, title):
+            self.id = chat_id
+            self.title = title
+            
     for setting in all_chat_settings:
-        # Check if bot can still access this chat. If not, schedule it for cleanup.
-        try:
-            bot_member = await bot.get_chat_member(setting.chat_id, bot.id)
-            if bot_member.status in [ChatMemberStatus.LEFT, ChatMemberStatus.KICKED]:
-                chats_to_delete.append(setting.chat_id)
-                continue
-        except Exception:
-            chats_to_delete.append(setting.chat_id)
-            continue
-            
-        # Check authorization
-        if user_id == config.OWNER_ID:
-            try:
-                chat = await bot.get_chat(setting.chat_id)
-                managed.append(chat)
-            except Exception:
-                chats_to_delete.append(setting.chat_id)
-            continue
-            
-        try:
-            member = await bot.get_chat_member(setting.chat_id, user_id)
-            if member.status in [ChatMemberStatus.CREATOR]:
-                chat = await bot.get_chat(setting.chat_id)
-                managed.append(chat)
-        except Exception:
-            pass
-            
-    # Clean up deleted/invalid chats from database
-    if chats_to_delete:
-        from sqlalchemy import delete
-        await session.execute(delete(ChatSettings).where(ChatSettings.chat_id.in_(chats_to_delete)))
-        await session.commit()
+        title = setting.chat_title or f"Chat {setting.chat_id}"
+        managed.append(SimpleChat(setting.chat_id, title))
         
     return managed
 
@@ -194,8 +172,23 @@ async def callback_chat_details(callback: CallbackQuery, db_session: AsyncSessio
     chat_id = int(callback.data.split(":")[2])
     try:
         chat = await bot.get_chat(chat_id)
+        
+        # Verify user is still Creator (unless they are global bot owner)
+        if callback.from_user.id != config.OWNER_ID:
+            member = await bot.get_chat_member(chat_id, callback.from_user.id)
+            if member.status not in [ChatMemberStatus.CREATOR]:
+                await callback.answer("Вы больше не являетесь владельцем этого чата.", show_alert=True)
+                return await callback_show_list(callback, db_session, bot)
+                
+        # Update title/type in database if it changed
+        settings = await get_chat_settings(db_session, chat_id)
+        if settings.chat_title != chat.title or settings.chat_type != chat.type:
+            settings.chat_title = chat.title or f"Chat {chat_id}"
+            settings.chat_type = chat.type
+            await db_session.commit()
+            
     except Exception as e:
-        logger.warning(f"Failed to get chat {chat_id} details: {e}")
+        logger.warning(f"Failed to verify chat {chat_id} access: {e}")
         from sqlalchemy import delete
         await db_session.execute(delete(ChatSettings).where(ChatSettings.chat_id == chat_id))
         await db_session.commit()
@@ -260,7 +253,7 @@ async def callback_toggle_setting(callback: CallbackQuery, db_session: AsyncSess
     kwargs = {field: not current_val}
     await update_chat_settings(db_session, chat_id, **kwargs)
     
-    is_channel = chat.type == ChatType.CHANNEL
+    is_channel = settings.chat_type == ChatType.CHANNEL or settings.chat_type == "channel"
     keyboard = await make_channel_settings_keyboard(db_session, chat_id) if is_channel else await make_group_settings_keyboard(db_session, chat_id)
     
     # Refresh keyboard
