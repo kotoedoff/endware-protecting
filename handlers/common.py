@@ -1,7 +1,15 @@
 from aiogram import Router, types
 from aiogram.filters import CommandStart, Command
+from aiogram.filters.chat_member_updated import ChatMemberUpdatedFilter, JOIN_TRANSITION, LEAVE_TRANSITION
+from aiogram.types import ChatMemberUpdated
 from aiogram.enums import ChatType
+from database.crud import get_chat_settings
+from database.models import ChatSettings
+from sqlalchemy import delete
+from sqlalchemy.ext.asyncio import AsyncSession
+import logging
 
+logger = logging.getLogger(__name__)
 router = Router()
 
 @router.message(CommandStart())
@@ -39,3 +47,19 @@ async def cmd_help(message: types.Message):
         "• `/unwarn` — снять варн\n"
     )
     await message.answer(help_text, parse_mode="Markdown")
+
+@router.my_chat_member(ChatMemberUpdatedFilter(member_status_changed=JOIN_TRANSITION))
+async def on_bot_added(event: ChatMemberUpdated, db_session: AsyncSession):
+    chat_id = event.chat.id
+    # Get settings which automatically creates default entry in DB
+    await get_chat_settings(db_session, chat_id)
+    logger.info(f"Bot was added to chat/channel {chat_id}. ChatSettings initialized.")
+
+@router.my_chat_member(ChatMemberUpdatedFilter(member_status_changed=LEAVE_TRANSITION))
+async def on_bot_removed(event: ChatMemberUpdated, db_session: AsyncSession):
+    chat_id = event.chat.id
+    # Clean up settings from DB when bot is kicked
+    await db_session.execute(delete(ChatSettings).where(ChatSettings.chat_id == chat_id))
+    await db_session.commit()
+    logger.info(f"Bot was removed from chat/channel {chat_id}. ChatSettings cleaned.")
+

@@ -45,12 +45,19 @@ async def get_user_managed_chats(session: AsyncSession, bot: Bot, user_id: int):
             pass
     return managed
 
-def make_main_keyboard(chats) -> InlineKeyboardMarkup:
-    """Generate list of chats/groups/channels for owner to configure."""
+def make_main_keyboard(chats, bot_username: str) -> InlineKeyboardMarkup:
+    """Generate list of chats/groups/channels for owner to configure along with bot invite links."""
     keyboard = []
     for chat in chats:
         title = chat.title or f"Chat {chat.id}"
         keyboard.append([InlineKeyboardButton(text=f"⚙️ {title}", callback_data=f"set:chat:{chat.id}")])
+    
+    # Add help buttons to invite the bot
+    keyboard.append([
+        InlineKeyboardButton(text="➕ Добавить в группу", url=f"https://t.me/{bot_username}?startgroup=true"),
+        InlineKeyboardButton(text="➕ Добавить в канал", url=f"https://t.me/{bot_username}?startchannel=true")
+    ])
+    keyboard.append([InlineKeyboardButton(text="🔄 Обновить список", callback_data="set:list")])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 async def make_chat_settings_keyboard(session: AsyncSession, chat_id: int) -> InlineKeyboardMarkup:
@@ -90,26 +97,44 @@ async def make_chat_settings_keyboard(session: AsyncSession, chat_id: int) -> In
 async def cmd_settings(message: types.Message, db_session: AsyncSession, bot: Bot):
     """Entrypoint command for interactive settings panel (DM only)."""
     chats = await get_user_managed_chats(db_session, bot, message.from_user.id)
-    if not chats:
-        return await message.answer(
-            "⚠️ **У вас нет доступных чатов для настройки.**\n\n"
-            "Убедитесь, что:\n"
-            "1. Бот добавлен в ваш чат/канал в качестве **администратора**.\n"
-            "2. Вы являетесь **Владельцем (Создателем)** этого чата/канала."
-        )
+    bot_info = await bot.get_me()
     
+    if not chats:
+        text = (
+            "⚠️ **У вас нет доступных чатов для настройки.**\n\n"
+            "Чтобы настроить чат или канал:\n"
+            "1. Нажмите одну из кнопок ниже, чтобы добавить бота в вашу группу или канал.\n"
+            "2. Обязательно выдайте боту права администратора (удаление постов и блокировка пользователей).\n"
+            "3. Вернитесь сюда и нажмите кнопку **Обновить список**."
+        )
+    else:
+        text = "🛠 **Панель настройки Endware Security**\n\nВыберите чат или канал для управления:"
+        
     await message.answer(
-        "🛠 **Панель настройки Endware Security**\n\nВыберите чат или канал для управления:",
-        reply_markup=make_main_keyboard(chats),
+        text,
+        reply_markup=make_main_keyboard(chats, bot_info.username),
         parse_mode="Markdown"
     )
 
 @router.callback_query(F.data == "set:list")
 async def callback_show_list(callback: CallbackQuery, db_session: AsyncSession, bot: Bot):
     chats = await get_user_managed_chats(db_session, bot, callback.from_user.id)
+    bot_info = await bot.get_me()
+    
+    if not chats:
+        text = (
+            "⚠️ **У вас нет доступных чатов для настройки.**\n\n"
+            "Чтобы настроить чат или канал:\n"
+            "1. Нажмите одну из кнопок ниже, чтобы добавить бота в вашу группу или канал.\n"
+            "2. Обязательно выдайте боту права администратора (удаление постов и блокировка пользователей).\n"
+            "3. Нажмите кнопку **Обновить список**."
+        )
+    else:
+        text = "🛠 **Панель настройки Endware Security**\n\nВыберите чат или канал для управления:"
+        
     await callback.message.edit_text(
-        "🛠 **Панель настройки Endware Security**\n\nВыберите чат или канал для управления:",
-        reply_markup=make_main_keyboard(chats),
+        text,
+        reply_markup=make_main_keyboard(chats, bot_info.username),
         parse_mode="Markdown"
     )
 
