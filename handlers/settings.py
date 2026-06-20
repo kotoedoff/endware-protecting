@@ -62,7 +62,7 @@ async def make_group_settings_keyboard(session: AsyncSession, chat_id: int) -> I
     """Generate configuration options for a specific group chat."""
     settings = await get_chat_settings(session, chat_id)
     
-    t_anti_bot = "✅ Анти-накрутка" if settings.anti_bot_flood else "❌ Анти-накрутка"
+    t_anti_bot = "✅ Анти-спам / Флуд" if settings.anti_bot_flood else "❌ Анти-спам / Флуд"
     t_anti_admin = "✅ Rogue Admin" if settings.anti_admin_spam else "❌ Rogue Admin"
     t_stealth_ad = "✅ Скрытая реклама" if settings.anti_stealth_ad else "❌ Скрытая реклама"
     t_captcha = "✅ Капча при входе" if settings.captcha_gate else "❌ Капча при входе"
@@ -97,7 +97,7 @@ async def make_channel_settings_keyboard(session: AsyncSession, chat_id: int) ->
     """Generate configuration options for a channel."""
     settings = await get_chat_settings(session, chat_id)
     
-    t_anti_bot = "✅ Анти-накрутка" if settings.anti_bot_flood else "❌ Анти-накрутка"
+    t_anti_bot = "✅ Анти-спам / Накрутка" if settings.anti_bot_flood else "❌ Анти-спам / Накрутка"
     t_anti_admin = "✅ Rogue Admin" if settings.anti_admin_spam else "❌ Rogue Admin"
     t_anti_nsfw = "✅ NSFW/Медиа-фильтр" if settings.anti_nsfw else "❌ NSFW/Медиа-фильтр"
     
@@ -208,7 +208,7 @@ async def callback_chat_details(callback: CallbackQuery, db_session: AsyncSessio
             f"⚙️ **Настройки канала:** {title}\n"
             f"• **ID:** `{chat_id}`\n\n"
             f"🛡 **Функции модерации канала:**\n"
-            f"• **Анти-накрутка:** Отклонение заявок (Join Requests) от подозрительных ботов.\n"
+            f"• **Анти-спам / Накрутка:** Отклонение заявок (Join Requests) и флуда в комментариях.\n"
             f"• **Rogue Admin:** Быстрое удаление вредоносных постов, рекламы и NSFW от взломанных админов.\n"
             f"• **NSFW/Медиа-фильтр:** Проверка ИИ-зрением картинок на порнографию/NSFW (сейчас: {'включен' if settings.anti_nsfw else 'выключен'}).\n"
             f"• **Канал логов:** Отправка логов удаленных постов/ботов (сейчас: {settings.alert_channel_id if settings.alert_channel_id else 'не настроен'}).\n"
@@ -220,7 +220,7 @@ async def callback_chat_details(callback: CallbackQuery, db_session: AsyncSessio
             f"⚙️ **Настройки группы:** {title}\n"
             f"• **ID:** `{chat_id}`\n\n"
             f"🛡 **Функции защиты чата:**\n"
-            f"• **Анти-накрутка:** Фильтрация бот-набегов на чат и флуда.\n"
+            f"• **Анти-спам / Флуд:** Защита от текстового спама, повторов сообщений и флуда.\n"
             f"• **Rogue Admin:** Понижение админов-нарушителей при спаме.\n"
             f"• **Скрытая реклама:** Фильтр рекламы в никах, био и сообщениях.\n"
             f"• **Капча при входе:** Проверка смайликом при вступлении.\n"
