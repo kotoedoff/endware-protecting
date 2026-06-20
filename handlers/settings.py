@@ -5,6 +5,7 @@ from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.context import FSMContext
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from aiogram.enums import ChatType, ChatMemberStatus
+from aiogram.exceptions import TelegramBadRequest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from database.models import ChatSettings, BlacklistedWords
@@ -132,11 +133,17 @@ async def callback_show_list(callback: CallbackQuery, db_session: AsyncSession, 
     else:
         text = "🛠 **Панель настройки Endware Security**\n\nВыберите чат или канал для управления:"
         
-    await callback.message.edit_text(
-        text,
-        reply_markup=make_main_keyboard(chats, bot_info.username),
-        parse_mode="Markdown"
-    )
+    try:
+        await callback.message.edit_text(
+            text,
+            reply_markup=make_main_keyboard(chats, bot_info.username),
+            parse_mode="Markdown"
+        )
+    except TelegramBadRequest as e:
+        if "message is not modified" in str(e):
+            await callback.answer("Список чатов не изменился.")
+        else:
+            raise e
 
 @router.callback_query(F.data.startswith("set:chat:"))
 async def callback_chat_details(callback: CallbackQuery, db_session: AsyncSession, bot: Bot):
