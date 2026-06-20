@@ -135,7 +135,7 @@ async def inspect_channel_post(message: types.Message, db_session: AsyncSession,
             return
 
     # 4. AI Scan: Photo content via Groq Vision
-    if message.photo:
+    if settings.anti_nsfw and message.photo:
         # Download the largest photo size
         photo = message.photo[-1]
         try:

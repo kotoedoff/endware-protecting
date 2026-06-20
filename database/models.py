@@ -15,6 +15,7 @@ class ChatSettings(Base):
     anti_stealth_ad: Mapped[bool] = mapped_column(Boolean, default=False)
     captcha_gate: Mapped[bool] = mapped_column(Boolean, default=False)
     link_guard: Mapped[bool] = mapped_column(Boolean, default=False)
+    anti_nsfw: Mapped[bool] = mapped_column(Boolean, default=False)
     mute_duration_minutes: Mapped[int] = mapped_column(Integer, default=30)
     captcha_timeout_seconds: Mapped[int] = mapped_column(Integer, default=60)
     custom_groq_key_text: Mapped[str] = mapped_column(String, nullable=True)

@@ -255,6 +255,7 @@ async def handle_user_violation(
 
 _message_tracker: Dict[tuple, list] = {}
 _media_tracker: Dict[tuple, list] = {}
+_seen_media_groups: Dict[tuple, list] = {}
 
 def check_message_flood(chat_id: int, user_id: int, message: types.Message) -> str:
     """
@@ -286,18 +287,33 @@ def check_message_flood(chat_id: int, user_id: int, message: types.Message) -> s
     if len(_message_tracker[key]) > 5:
         return "Классический флуд (более 5 сообщений за 5 сек)"
         
-    # 3. Media flood (more than 3 media files in 5 seconds)
+    # 3. Media flood (more than 3 media files in 5 seconds, ignoring media groups/albums)
     is_media = any([
         message.photo, message.video, message.document, message.audio, 
         message.voice, message.sticker, message.animation, message.video_note
     ])
     if is_media:
-        if key not in _media_tracker:
-            _media_tracker[key] = []
-        _media_tracker[key] = [t for t in _media_tracker[key] if now - t < 5]
-        _media_tracker[key].append(now)
-        if len(_media_tracker[key]) > 3:
-            return "Медиа-флуд (более 3 медиа-файлов за 5 сек)"
+        is_new_media = True
+        if message.media_group_id:
+            group_key = (chat_id, user_id)
+            if group_key not in _seen_media_groups:
+                _seen_media_groups[group_key] = []
+            _seen_media_groups[group_key] = [
+                (mg_id, t) for mg_id, t in _seen_media_groups[group_key] if now - t < 10
+            ]
+            seen_ids = [mg_id for mg_id, t in _seen_media_groups[group_key]]
+            if message.media_group_id in seen_ids:
+                is_new_media = False
+            else:
+                _seen_media_groups[group_key].append((message.media_group_id, now))
+                
+        if is_new_media:
+            if key not in _media_tracker:
+                _media_tracker[key] = []
+            _media_tracker[key] = [t for t in _media_tracker[key] if now - t < 5]
+            _media_tracker[key].append(now)
+            if len(_media_tracker[key]) > 3:
+                return "Медиа-флуд (более 3 медиа-отправок за 5 сек)"
             
     return ""
 
@@ -372,7 +388,7 @@ async def monitor_chat_message(message: types.Message, db_session: AsyncSession,
                     )
 
     # 5. Check NSFW Media (Groq Vision)
-    if message.photo:
+    if settings.anti_nsfw and message.photo:
         photo = message.photo[-1]
         try:
             file_info = await bot.get_file(photo.file_id)

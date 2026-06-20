@@ -67,6 +67,7 @@ async def make_group_settings_keyboard(session: AsyncSession, chat_id: int) -> I
     t_stealth_ad = "✅ Скрытая реклама" if settings.anti_stealth_ad else "❌ Скрытая реклама"
     t_captcha = "✅ Капча при входе" if settings.captcha_gate else "❌ Капча при входе"
     t_link_guard = "✅ Безопасные ссылки" if settings.link_guard else "❌ Безопасные ссылки"
+    t_anti_nsfw = "✅ NSFW/Медиа-фильтр" if settings.anti_nsfw else "❌ NSFW/Медиа-фильтр"
     
     keyboard = [
         [InlineKeyboardButton(text=t_anti_bot, callback_data=f"set:toggle:{chat_id}:anti_bot_flood")],
@@ -74,6 +75,7 @@ async def make_group_settings_keyboard(session: AsyncSession, chat_id: int) -> I
         [InlineKeyboardButton(text=t_stealth_ad, callback_data=f"set:toggle:{chat_id}:anti_stealth_ad")],
         [InlineKeyboardButton(text=t_captcha, callback_data=f"set:toggle:{chat_id}:captcha_gate")],
         [InlineKeyboardButton(text=t_link_guard, callback_data=f"set:toggle:{chat_id}:link_guard")],
+        [InlineKeyboardButton(text=t_anti_nsfw, callback_data=f"set:toggle:{chat_id}:anti_nsfw")],
         [
             InlineKeyboardButton(text="➖ 10м", callback_data=f"set:mute:{chat_id}:minus"),
             InlineKeyboardButton(text=f"Мут: {settings.mute_duration_minutes} мин", callback_data="set:ignore"),
@@ -97,10 +99,12 @@ async def make_channel_settings_keyboard(session: AsyncSession, chat_id: int) ->
     
     t_anti_bot = "✅ Анти-накрутка" if settings.anti_bot_flood else "❌ Анти-накрутка"
     t_anti_admin = "✅ Rogue Admin" if settings.anti_admin_spam else "❌ Rogue Admin"
+    t_anti_nsfw = "✅ NSFW/Медиа-фильтр" if settings.anti_nsfw else "❌ NSFW/Медиа-фильтр"
     
     keyboard = [
         [InlineKeyboardButton(text=t_anti_bot, callback_data=f"set:toggle:{chat_id}:anti_bot_flood")],
         [InlineKeyboardButton(text=t_anti_admin, callback_data=f"set:toggle:{chat_id}:anti_admin_spam")],
+        [InlineKeyboardButton(text=t_anti_nsfw, callback_data=f"set:toggle:{chat_id}:anti_nsfw")],
         [
             InlineKeyboardButton(text="🔑 Текстовый Ключ", callback_data=f"set:key_text:{chat_id}"),
             InlineKeyboardButton(text="📷 Визуальный Ключ", callback_data=f"set:key_vis:{chat_id}")
@@ -206,6 +210,7 @@ async def callback_chat_details(callback: CallbackQuery, db_session: AsyncSessio
             f"🛡 **Функции модерации канала:**\n"
             f"• **Анти-накрутка:** Отклонение заявок (Join Requests) от подозрительных ботов.\n"
             f"• **Rogue Admin:** Быстрое удаление вредоносных постов, рекламы и NSFW от взломанных админов.\n"
+            f"• **NSFW/Медиа-фильтр:** Проверка ИИ-зрением картинок на порнографию/NSFW (сейчас: {'включен' if settings.anti_nsfw else 'выключен'}).\n"
             f"• **Канал логов:** Отправка логов удаленных постов/ботов (сейчас: {settings.alert_channel_id if settings.alert_channel_id else 'не настроен'}).\n"
             f"• **Кастомный ИИ:** Личные ключи Groq для канала (Text: {'✅' if settings.custom_groq_key_text else '❌'}, Vision: {'✅' if settings.custom_groq_key_vision else '❌'}).\n"
         )
@@ -215,11 +220,12 @@ async def callback_chat_details(callback: CallbackQuery, db_session: AsyncSessio
             f"⚙️ **Настройки группы:** {title}\n"
             f"• **ID:** `{chat_id}`\n\n"
             f"🛡 **Функции защиты чата:**\n"
-            f"• **Анти-накрутка:** Фильтрация бот-набегов на чат.\n"
+            f"• **Анти-накрутка:** Фильтрация бот-набегов на чат и флуда.\n"
             f"• **Rogue Admin:** Понижение админов-нарушителей при спаме.\n"
             f"• **Скрытая реклама:** Фильтр рекламы в никах, био и сообщениях.\n"
             f"• **Капча при входе:** Проверка смайликом при вступлении.\n"
             f"• **Безопасные ссылки:** Фильтр фишинга и IP-логгеров (Grabify).\n"
+            f"• **NSFW/Медиа-фильтр:** Проверка ИИ-зрением картинок на порнографию/NSFW (сейчас: {'включен' if settings.anti_nsfw else 'выключен'}).\n"
             f"• **Стоп-слова:** Персональный черный список слов.\n"
             f"• **Канал логов:** Ссылка на лог-канал (сейчас: {settings.alert_channel_id if settings.alert_channel_id else 'не настроен'}).\n"
             f"• **Кастомный ИИ:** Ваши ключи Groq (Text: {'✅' if settings.custom_groq_key_text else '❌'}, Vision: {'✅' if settings.custom_groq_key_vision else '❌'}).\n"
