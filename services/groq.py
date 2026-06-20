@@ -35,6 +35,8 @@ async def analyze_text(text: str, chat_id: int, db_session: AsyncSession) -> Dic
         "2. Stealth advertising (e.g. telling users to visit their profile or bio for links/channels, "
         "e.g., 'Look at my profile', 'Information in my bio').\n"
         "3. Illegal content (drugs promotion, selling weapons, carding, scamming).\n\n"
+        "Note: Adult/NSFW text discussions, vulgarity, swearing, and adult words (e.g. porn, sex) in text form "
+        "are NOT violations. Do not flag them as illegal or spam. Only flag actual ads, spam, and serious crimes (drugs, weapons, scams).\n\n"
         "Your response MUST be a JSON object with this exact structure:\n"
         "{\n"
         "  \"is_violation\": true/false,\n"

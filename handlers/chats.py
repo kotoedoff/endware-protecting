@@ -3,6 +3,7 @@ import logging
 import random
 import time
 from typing import Dict, Any
+import re
 from datetime import datetime, timedelta
 from aiogram import Router, types, Bot, F
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ChatPermissions, CallbackQuery
@@ -252,34 +253,87 @@ async def handle_user_violation(
     except Exception as e:
         logger.error(f"Error handling violation for user {user.id}: {e}")
 
+_message_tracker: Dict[tuple, list] = {}
+_media_tracker: Dict[tuple, list] = {}
+
+def check_message_flood(chat_id: int, user_id: int, message: types.Message) -> str:
+    """
+    Checks if user is flooding the group chat.
+    Returns the reason (str) if it's a violation, or empty string if OK.
+    """
+    now = time.time()
+    key = (chat_id, user_id)
+    
+    # 1. Mass tags check
+    mentions_count = 0
+    if message.entities:
+        for entity in message.entities:
+            if entity.type in ["mention", "text_mention"]:
+                mentions_count += 1
+    if message.caption_entities:
+        for entity in message.caption_entities:
+            if entity.type in ["mention", "text_mention"]:
+                mentions_count += 1
+                
+    if mentions_count > 5:
+        return "Массовые упоминания (более 5 тегов)"
+        
+    # 2. Classic message flood (more than 5 messages in 5 seconds)
+    if key not in _message_tracker:
+        _message_tracker[key] = []
+    _message_tracker[key] = [t for t in _message_tracker[key] if now - t < 5]
+    _message_tracker[key].append(now)
+    if len(_message_tracker[key]) > 5:
+        return "Классический флуд (более 5 сообщений за 5 сек)"
+        
+    # 3. Media flood (more than 3 media files in 5 seconds)
+    is_media = any([
+        message.photo, message.video, message.document, message.audio, 
+        message.voice, message.sticker, message.animation, message.video_note
+    ])
+    if is_media:
+        if key not in _media_tracker:
+            _media_tracker[key] = []
+        _media_tracker[key] = [t for t in _media_tracker[key] if now - t < 5]
+        _media_tracker[key].append(now)
+        if len(_media_tracker[key]) > 3:
+            return "Медиа-флуд (более 3 медиа-файлов за 5 сек)"
+            
+    return ""
+
 @router.message(F.chat.type.in_([ChatType.GROUP, ChatType.SUPERGROUP]))
 async def monitor_chat_message(message: types.Message, db_session: AsyncSession, bot: Bot):
-    """Scans chat messages for URL security, stop words, stealth ads and NSFW media."""
-    # Ignore messages without text/caption and photos
-    if not message.text and not message.caption and not message.photo:
-        return
-
+    """Scans chat messages for flood, URL security, stop words, stealth ads and NSFW media."""
     chat_id = message.chat.id
     user = message.from_user
-    if user.is_bot:
+    if not user or user.is_bot:
         return
 
     settings = await initialize_chat_settings(db_session, bot, chat_id, message.chat.title)
-    
+
+    # 1. Anti-Flood protection (enabled under anti_bot_flood)
+    if settings.anti_bot_flood:
+        flood_reason = check_message_flood(chat_id, user.id, message)
+        if flood_reason:
+            return await handle_user_violation(
+                bot, message, db_session, settings,
+                reason=flood_reason, explanation="Пользователь заблокирован за превышение лимитов флуда/тегов."
+            )
+
     content = message.text or message.caption or ""
-    
-    # 1. Check custom blacklisted words
+
+    # 2. Check custom blacklisted words
     if content:
         blacklisted = await get_blacklisted_words(db_session, chat_id)
         content_lower = content.lower()
         for word in blacklisted:
             if word in content_lower:
                 return await handle_user_violation(
-                    bot, message, db_session, settings, 
+                    bot, message, db_session, settings,
                     reason="Черный список слов", explanation=f"Содержит заблокированное слово: {word}"
                 )
 
-    # 2. Check Link Guard (Phishing and IP loggers)
+    # 3. Check Link Guard (Phishing and IP loggers)
     if settings.link_guard and content:
         urls = extract_urls(content)
         for url in urls:
@@ -289,28 +343,36 @@ async def monitor_chat_message(message: types.Message, db_session: AsyncSession,
                     reason="Вредоносная ссылка", explanation=f"Обнаружен IP-логгер или фишинг домен: {url}"
                 )
 
-    # 3. Check Stealth Ads (Heuristics + Groq API check)
-    if settings.anti_stealth_ad and content:
-        # Check nickname/username for promo links
-        name_str = f"{user.first_name or ''} {user.last_name or ''} @{user.username or ''}"
-        has_stealth_ad_profile = "@" in name_str or "t.me" in name_str or "http" in name_str
-        
-        has_suspicious_keywords = contains_stealth_ad_keywords(content)
-        
-        if has_stealth_ad_profile or has_suspicious_keywords:
-            # Fallback to Groq for deep validation
-            ai_res = await analyze_text(content, chat_id, db_session)
-            if ai_res.get("is_violation"):
-                return await handle_user_violation(
-                    bot, message, db_session, settings,
-                    reason=f"Скрытая реклама ({ai_res.get('reason')})",
-                    explanation=ai_res.get("explanation", "")
-                )
+    # 4. Check Stealth Ads (Heuristics + Groq API check)
+    if settings.anti_stealth_ad:
+        # Check nickname for promo links/usernames
+        name_str = f"{user.first_name or ''} {user.last_name or ''}"
+        has_promo_nickname = False
+        if "t.me/" in name_str.lower() or "http://" in name_str.lower() or "https://" in name_str.lower() or re.search(r"@[a-zA-Z0-9_]+", name_str):
+            has_promo_nickname = True
+            
+        if has_promo_nickname:
+            return await handle_user_violation(
+                bot, message, db_session, settings,
+                reason="Рекламный никнейм",
+                explanation=f"Никнейм содержит ссылку или юзернейм: {name_str}"
+            )
+            
+        # Check message content for stealth ads (only if keywords are matched)
+        if content:
+            has_suspicious_keywords = contains_stealth_ad_keywords(content)
+            if has_suspicious_keywords:
+                # Fallback to Groq for deep validation
+                ai_res = await analyze_text(content, chat_id, db_session)
+                if ai_res.get("is_violation"):
+                    return await handle_user_violation(
+                        bot, message, db_session, settings,
+                        reason=f"Скрытая реклама ({ai_res.get('reason')})",
+                        explanation=ai_res.get("explanation", "")
+                    )
 
-    # 4. Check NSFW Media (Groq Vision)
+    # 5. Check NSFW Media (Groq Vision)
     if message.photo:
-        # Ensure we check the photo settings. We can check either NSFW or generally illegal contents.
-        # Since NSFW image classification is required, we use the vision key
         photo = message.photo[-1]
         try:
             file_info = await bot.get_file(photo.file_id)
