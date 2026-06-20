@@ -81,6 +81,7 @@ async def main():
     dp.callback_query.outer_middleware(DbSessionMiddleware())
     dp.chat_join_request.outer_middleware(DbSessionMiddleware())
     dp.chat_member.outer_middleware(DbSessionMiddleware())
+    dp.my_chat_member.outer_middleware(DbSessionMiddleware())
 
     # Register routers
     dp.include_router(common.router)
