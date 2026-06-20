@@ -82,6 +82,8 @@ async def main():
     dp.chat_join_request.outer_middleware(DbSessionMiddleware())
     dp.chat_member.outer_middleware(DbSessionMiddleware())
     dp.my_chat_member.outer_middleware(DbSessionMiddleware())
+    dp.channel_post.outer_middleware(DbSessionMiddleware())
+    dp.edited_channel_post.outer_middleware(DbSessionMiddleware())
 
     # Register routers
     dp.include_router(common.router)
