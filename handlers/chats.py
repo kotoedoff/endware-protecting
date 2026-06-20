@@ -6,7 +6,7 @@ from typing import Dict, Any
 from datetime import datetime, timedelta
 from aiogram import Router, types, Bot, F
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ChatPermissions, CallbackQuery
-from aiogram.filters import ChatMemberUpdatedFilter, IS_MEMBER, IS_NOT_MEMBER
+from aiogram.filters.chat_member_updated import ChatMemberUpdatedFilter, JOIN_TRANSITION
 from aiogram.types import ChatMemberUpdated
 from aiogram.enums import ChatMemberStatus, ChatType
 from database.crud import get_chat_settings, initialize_chat_settings, get_blacklisted_words, add_active_mute, add_warn, reset_warns
@@ -75,7 +75,7 @@ async def demote_admin_if_possible(bot: Bot, chat_id: int, user_id: int) -> bool
 
 # --- Captcha Gate ---
 
-@router.chat_member(ChatMemberUpdatedFilter(member_status_changed=IS_MEMBER))
+@router.chat_member(ChatMemberUpdatedFilter(member_status_changed=JOIN_TRANSITION))
 async def on_user_join(event: ChatMemberUpdated, db_session: AsyncSession, bot: Bot):
     """Triggers when a new user joins the chat. Restricts permissions and sends captcha."""
     chat_id = event.chat.id
